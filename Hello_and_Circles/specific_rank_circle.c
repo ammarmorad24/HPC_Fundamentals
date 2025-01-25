@@ -3,27 +3,27 @@
 #include <stdlib.h>
 #include <math.h>
 
-struct circle_data {
+struct circle {
     int *radius;
     int *diameter;
     double *circumference;
     double *area;
 };
 
-// Function to initialize circle data
-void init_circle_data(struct circle_data *data, int size) {
-    data->radius = (int *)malloc(size * sizeof(int));
-    data->diameter = (int *)malloc(size * sizeof(int));
-    data->circumference = (double *)malloc(size * sizeof(double));
-    data->area = (double *)malloc(size * sizeof(double));
+// Function to initialize circle params
+void init_circle(struct circle *param, int size) {
+    param->radius = (int *)malloc(size * sizeof(int));
+    param->diameter = (int *)malloc(size * sizeof(int));
+    param->circumference = (double *)malloc(size * sizeof(double));
+    param->area = (double *)malloc(size * sizeof(double));
 }
 
-// Function to free circle data
-void free_circle_data(struct circle_data *data) {
-    free(data->radius);
-    free(data->diameter);
-    free(data->circumference);
-    free(data->area);
+// Function to free circle params
+void free_circle(struct circle *param) {
+    free(param->radius);
+    free(param->diameter);
+    free(param->circumference);
+    free(param->area);
 }
 
 int main(int argc, char **argv) {
@@ -35,9 +35,9 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-    // Initialize circle data
-    struct circle_data circles;
-    init_circle_data(&circles, num_circles);
+    // Initialize circle param
+    struct circle circles;
+    init_circle(&circles, num_circles);
 
     if (world_rank == 0) {
         // Populate radius values
@@ -75,8 +75,8 @@ int main(int argc, char **argv) {
     end_time = MPI_Wtime();
     printf("Time taken by process %d is %f seconds\n", world_rank, end_time - start_time);
 
-    // Free circle data
-    free_circle_data(&circles);
+    // Free circle param
+    free_circle(&circles);
 
     MPI_Finalize();
     return 0;
