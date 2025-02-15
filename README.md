@@ -7,6 +7,8 @@ This repository is based on MaharaTech's course by Dr. Ahmed Shawky Moussa. Addi
 1. Monte Carlo Simulations
 2. Heat Transfer Solver
 3. Softmax Kernel Optimization
+4. Distributed Matrix Multiplication
+5. Parallel Image Processing
 
 ## Book Projects TBD
 
