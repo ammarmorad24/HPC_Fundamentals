@@ -4,6 +4,7 @@
 #include <vector>
 #include <random>
 #include <chrono>
+#include "taylor_vector_ispc.h"
 
 using namespace std;
 
@@ -71,22 +72,48 @@ typedef struct{
 
 void my_thread_fn(taylor_args *t)
 {
-    sinx(t->n, t->terms, t->x, t->y);
+    //sinx(t->n, t->terms, t->x, t->y);
+    ispc::sinx_ispc(t->n, t->terms, t->x, t->y);
 }
 
+// Parallelism with ThreadPool
+void taylor_parallel(int n, int terms, double* x, double* y) {
+    // Get available threads and allow override
+    const int available_threads = thread::hardware_concurrency();
+    const int num_threads = 2 * available_threads; // You can modify this line to use more threads
+    
+    cout << "Running with " << num_threads << " threads (Hardware supports: " 
+         << available_threads << " threads)" << endl;
+    
+    vector<thread> thread_pool(num_threads);
+    vector<taylor_args> args(num_threads);
 
-void taylor_parallel(int n, int terms, double* x, double* y){
-    thread t1;
-    taylor_args tp;
-    tp.n = n/2;
-    tp.terms = terms;
-    tp.x = x;
-    tp.y = y;
-
-    t1 = thread(my_thread_fn, &tp);
-    sinx(n - tp.n, tp.terms, x + tp.n, y + tp.n);
-    t1.join();
-
+    
+    // Calculate chunk size for each thread
+    int chunk_size = n / num_threads;
+    int remainder = n % num_threads;
+    
+    // Start position for each thread's data
+    int start_pos = 0;
+    
+    // Create and launch threads
+    for(int i = 0; i < num_threads; i++) {
+        // Handle remaining elements in last chunk
+        int current_chunk = chunk_size + (i == num_threads-1 ? remainder : 0);
+        
+        args[i].n = current_chunk;
+        args[i].terms = terms;
+        args[i].x = x + start_pos;
+        args[i].y = y + start_pos;
+        
+        thread_pool[i] = thread(my_thread_fn, &args[i]);
+        start_pos += current_chunk;
+    }
+    
+    // Wait for all threads to complete
+    for(auto& t : thread_pool) {
+        t.join();
+    }
 }
 
 
@@ -94,14 +121,16 @@ void taylor_serial(int n, int terms, double* x, double* y) {
     sinx(n, terms, x, y);
 }
 
-int main()
-{
+void taylor_vector(int n, int terms, double* x, double* y) {
+    ispc::sinx_ispc(n, terms, x, y);
+}
+
+int main() {
     int n = 100000000;
     int terms = 10;
 
     vector<double> x(n);
-
-    // Generate normally distributed pi multipliers values
+    // Generate test data
     random_device rd;
     mt19937 gen(rd());
     normal_distribution<> d(M_PI, 1);
@@ -109,35 +138,63 @@ int main()
         x[i] = d(gen);
     }
 
-    vector<double> y_parallel(n);
     vector<double> y_serial(n);
+    vector<double> y_vector(n);
+    vector<double> y_parallel(n);
 
-    auto start_parallel = chrono::high_resolution_clock::now();
-    taylor_parallel(n, terms, x.data(), y_parallel.data());
-    auto end_parallel = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed_parallel = end_parallel - start_parallel;
-
+    // Test 1: Serial version
+    cout << "\nRunning serial version..." << endl;
     auto start_serial = chrono::high_resolution_clock::now();
     taylor_serial(n, terms, x.data(), y_serial.data());
     auto end_serial = chrono::high_resolution_clock::now();
     chrono::duration<double> elapsed_serial = end_serial - start_serial;
 
-    cout << "Parallel version took: " << elapsed_parallel.count() << " seconds" << endl;
-    cout << "Serial version took: " << elapsed_serial.count() << " seconds" << endl;
+    // Test 2: ISPC Vector-only version
+    cout << "\nRunning vectorized version..." << endl;
+    auto start_vector = chrono::high_resolution_clock::now();
+    taylor_vector(n, terms, x.data(), y_vector.data());
+    auto end_vector = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed_vector = end_vector - start_vector;
 
-    // Check if the results are the same
+    // Test 3: Hybrid (Threads + ISPC) version
+    cout << "\nRunning hybrid (threads + SIMD) version..." << endl;
+    auto start_parallel = chrono::high_resolution_clock::now();
+    taylor_parallel(n, terms, x.data(), y_parallel.data());
+    auto end_parallel = chrono::high_resolution_clock::now();
+    chrono::duration<double> elapsed_parallel = end_parallel - start_parallel;
+
+    // Print results
+    cout << "\nPerformance Results:" << endl;
+    cout << "Serial version took:    " << elapsed_serial.count() << " seconds" << endl;
+    cout << "Vector version took:    " << elapsed_vector.count() << " seconds" << endl;
+    cout << "Hybrid version took:    " << elapsed_parallel.count() << " seconds" << endl;
+
+    // Calculate speedups
+    double vector_speedup = elapsed_serial.count() / elapsed_vector.count();
+    double hybrid_speedup = elapsed_serial.count() / elapsed_parallel.count();
+    
+    cout << "\nSpeedup Results:" << endl;
+    cout << "Vector speedup:         " << vector_speedup << "x" << endl;
+    cout << "Hybrid speedup:         " << hybrid_speedup << "x" << endl;
+
+    // Verify results
+    cout << "\nVerifying results..." << endl;
+    bool results_match = true;
     for (int i = 0; i < n; i++) {
-        if (abs(y_parallel[i] - y_serial[i]) > 1e-6) {
+        if (abs(y_serial[i] - y_vector[i]) > 1e-6 || 
+            abs(y_serial[i] - y_parallel[i]) > 1e-6) {
             cout << "Results differ at index " << i << endl;
-            cout << "Parallel: " << y_parallel[i] << " Serial: " << y_serial[i] << endl;
-            return 1;
+            cout << "Serial: " << y_serial[i] 
+                 << " Vector: " << y_vector[i] 
+                 << " Parallel: " << y_parallel[i] << endl;
+            results_match = false;
+            break;
         }
     }
 
-    // calculate the speedup
-    cout << "Speedup: " << elapsed_serial.count() / elapsed_parallel.count() << endl;
-
-    cout << "Results are the same" << endl;
+    if (results_match) {
+        cout << "All implementations produce matching results!" << endl;
+    }
 
     return 0;
 }
